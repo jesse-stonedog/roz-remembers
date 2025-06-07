@@ -1,24 +1,52 @@
-# setup.py
-from setuptools import setup, find_packages
+[tool.poetry]
+name = "roz-remembers"
+version = "0.1.0"
+description = "A generic, message-driven state management library inspired by Redux."
+authors = ["Your Name <you@example.com>"] # Replace with your name and email
+license = "MIT" # Or choose another appropriate open-source license
+readme = "README.md"
+homepage = "https://github.com/YourGitHubUsername/roz-remembers" # Replace with your GitHub URL
+repository = "https://github.com/YourGitHubUsername/roz-remembers" # Replace with your GitHub URL
+keywords = ["state-management", "redux", "asyncio", "event-driven"]
 
-setup(
-    name='my-awesome-package',
-    version='0.1.0',
-    author='Your Name',
-    author_email='your.email@example.com',
-    description='A short description of my awesome package.',
-    long_description=open('README.md').read(),
-    long_description_content_type='text/markdown',
-    url='https://github.com/yourusername/my-awesome-package',
-    packages=find_packages(), # This automatically finds your Python packages
-    install_requires=[
-        'requests>=2.20.0',
-        'numpy',
-    ],
-    classifiers=[
-        'Programming Language :: Python :: 3',
-        'License :: OSI Approved :: MIT License',
-        'Operating System :: OS Independent',
-    ],
-    python_requires='>=3.7',
-)
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0" # Specifies Python versions 3.9 and up, but less than 4.0
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0" # For testing
+black = "^24.0" # For code formatting
+isort = "^5.10" # For import sorting
+flake8 = "^7.0" # For linting
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+min_version = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | \.mypy_cache
+  | \.pytest_cache
+  | \.hypothesis
+  | __pycache__
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["roz_remembers", "tests"] # Assuming your main code is in a 'roz_remembers' directory

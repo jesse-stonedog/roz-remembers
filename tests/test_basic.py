@@ -4,7 +4,7 @@ import copy
 import json
 import pytest
 
-from main import RozRemembers
+from src.roz_remembers import RozRemembers
 
 
 INITIAL_STATES = {
