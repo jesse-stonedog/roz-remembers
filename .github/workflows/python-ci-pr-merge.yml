@@ -51,15 +51,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Checkout the dev branch for the source of the PR
           ref: dev
-          fetch-depth: 0 # Get full history for accurate diffing
-          token: ${{ secrets.GH_ACTIONS_PAT }} # Use PAT for broader permissions with gh CLI
+          fetch-depth: 0 
+          token: ${{ secrets.GH_ACTIONS_PAT }} 
 
-      - name: Fetch main branch for comparison
+      - name: Fetch and ensure main is up-to-date
         run: |
           git remote set-url origin https://github.com/${{ github.repository }}
-          git fetch origin main:main # Ensure local origin/main is up-to-date
+          git fetch origin main # Fetch main branch from origin
+          git branch -f main origin/main 
 
       - name: Configure Git
         run: |
