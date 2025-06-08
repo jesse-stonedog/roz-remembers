@@ -102,7 +102,7 @@ jobs:
               echo "needs_pr=true" >> "$GITHUB_OUTPUT"
             fi
           fi
-          
+
       - name: Check if PR already exists (only if diff exists)
         id: check_pr
         if: steps.check_diff.outputs.needs_pr == 'true'
@@ -129,6 +129,7 @@ jobs:
           base: main # Target branch
           delete-branch: false
           add-paths: '.' # Include all changes from 'dev'
+          rebase-merge: false
 
       - name: Determine PR number for merging
         id: get_pr_number
