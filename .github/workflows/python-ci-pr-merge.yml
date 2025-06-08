@@ -70,22 +70,39 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Check for differences between dev and main
+      - name: Check for differences between dev and main (Bulletproof)
         id: check_diff
         run: |
-          # Ensure we are on 'dev' (actions/checkout should have done this)
-          git checkout dev
-          
-          # Compare the current 'dev' branch with the fetched 'origin/main'
-          # This command ensures `dev` has commits not present in `origin/main`
-          if git diff --exit-code origin/main dev > /dev/null; then
-            echo "::notice::Branch 'dev' is already in sync with 'main' on remote. No PR needed."
+          # Fetch all remote refs again to ensure they are absolutely fresh
+          git fetch origin
+
+          # Get the full SHA for both remote branches
+          DEV_SHA=$(git rev-parse origin/dev)
+          MAIN_SHA=$(git rev-parse origin/main)
+
+          echo "DEBUG: Remote origin/dev SHA: $DEV_SHA"
+          echo "DEBUG: Remote origin/main SHA: $MAIN_SHA"
+
+          # Check if dev is an ancestor of main (meaning main contains all of dev's commits)
+          # git merge-base finds the common ancestor. If it's dev_sha, then dev is fully merged into main.
+          if [ "$(git merge-base "$DEV_SHA" "$MAIN_SHA")" = "$DEV_SHA" ]; then
+            echo "::notice::Branch 'dev' is an ancestor of 'main' or identical to it. All dev's commits are already in main."
             echo "needs_pr=false" >> $GITHUB_OUTPUT
           else
-            echo "::notice::Branch 'dev' differs from 'main' on remote. A PR might be needed."
-            echo "needs_pr=true" >> $GITHUB_OUTPUT
+            # Also check if main is an ancestor of dev (meaning dev contains all of main's commits)
+            if [ "$(git merge-base "$MAIN_SHA" "$DEV_SHA")" = "$MAIN_SHA" ]; then
+              echo "::notice::Branch 'main' is an ancestor of 'dev'. Dev contains new commits."
+              # Show the actual diff to confirm what Git sees
+              echo "--- Actual diff (commits unique to dev since last common ancestor) ---"
+              git log --oneline "$MAIN_SHA".."$DEV_SHA"
+              echo "--- End Actual diff ---"
+              echo "needs_pr=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::notice::Branches 'dev' and 'main' have diverged with unique commits on both sides."
+              echo "needs_pr=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
-
+          
       - name: Check if PR already exists (only if diff exists)
         id: check_pr
         if: steps.check_diff.outputs.needs_pr == 'true'
