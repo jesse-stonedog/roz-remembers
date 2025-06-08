@@ -2,18 +2,19 @@
 name = "roz-remembers"
 version = "0.1.0"
 description = "A generic, message-driven state management library inspired by Redux."
-authors = ["Your Name <you@example.com>"] # Replace with your name and email
-license = "MIT" # Or choose another appropriate open-source license
+authors = ["Jesse Stone <jesse@stonedogcode.com>"] 
+license = "MPL-2.0 license" 
 readme = "README.md"
-homepage = "https://github.com/YourGitHubUsername/roz-remembers" # Replace with your GitHub URL
-repository = "https://github.com/YourGitHubUsername/roz-remembers" # Replace with your GitHub URL
+homepage = "https://github.com/jesse-stonedog/roz-remembers"
+repository = "https://github.com/jesse-stonedog/roz-remembers"
 keywords = ["state-management", "redux", "asyncio", "event-driven"]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<4.0" # Specifies Python versions 3.9 and up, but less than 4.0
+python = ">=3.9,<4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0" # For testing
+pytest-asyncio = "^0.23.0"
 black = "^24.0" # For code formatting
 isort = "^5.10" # For import sorting
 flake8 = "^7.0" # For linting
@@ -23,7 +24,6 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
-min_version = "6.0"
 addopts = "-ra -q"
 testpaths = [
     "tests",
@@ -49,4 +49,4 @@ exclude = '''
 [tool.isort]
 profile = "black"
 line_length = 88
-src_paths = ["roz_remembers", "tests"] # Assuming your main code is in a 'roz_remembers' directory
+src_paths = ["src", "tests"]
