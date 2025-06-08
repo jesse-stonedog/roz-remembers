@@ -1,8 +1,8 @@
-# Roz Remembers: A Message-Driven State Management Library
+# roz-remembers: A Message-Driven State Management Library
 
 ---
 
-Roz Remembers is a lightweight, message-driven state management library for Python, inspired by the predictable state container pattern popularized by Redux in the JavaScript ecosystem. It's designed to provide a **centralized, immutable state** that can be updated solely through **explicit, descriptive actions**, making your application's state changes predictable, traceable, and easier to debug.
+roz-remembers is a lightweight, message-driven state management library for Python, inspired by the predictable state container pattern popularized by Redux in the JavaScript ecosystem. It's designed to provide a **centralized, immutable state** that can be updated solely through **explicit, descriptive actions**, making your application's state changes predictable, traceable, and easier to debug.
 
 ## Features
 
@@ -16,11 +16,13 @@ Roz Remembers is a lightweight, message-driven state management library for Pyth
 
 ## Installation
 
-Roz Remembers can be installed using [Poetry](https://python-poetry.org/), the recommended package manager.
+Roz-Remembers can be installed using [Poetry](https://python-poetry.org/):
 
 ```bash
 poetry add roz-remembers
 
-or pip:
+Or [PIP](https://pypi.org/project/pip/):
 
+```bash
 pip install roz-remembers
+
