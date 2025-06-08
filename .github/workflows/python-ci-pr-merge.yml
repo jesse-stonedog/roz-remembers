@@ -45,109 +45,102 @@ jobs:
     name: Create PR & Merge to Main
     runs-on: ubuntu-latest
     needs: build_and_test
-    if: success()
+    if: success() # Only run if the build_and_test job passed
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Fetch the 'dev' branch initially as the working branch
+          # Checkout the dev branch for the source of the PR
           ref: dev
-          # Fetch full history for accurate diffing between any branches
-          fetch-depth: 0 
-          # Ensure a token is available for fetching other branches (though checkout@v4 usually has it by default)
-          token: ${{ secrets.GITHUB_TOKEN }} # Use default GITHUB_TOKEN for checkout
+          fetch-depth: 0 # Get full history for accurate diffing
+          token: ${{ secrets.GH_ACTIONS_PAT }} # Use PAT for broader permissions with gh CLI
 
       - name: Fetch main branch for comparison
         run: |
           git remote set-url origin https://github.com/${{ github.repository }}
-          git fetch origin main:main # Explicitly fetch origin/main into local main, or just fetch origin main
-          git branch -r # Optional: inspect remote branches to confirm origin/main is there
-          git log origin/main --oneline -5 # Optional: check latest commits on origin/main
+          git fetch origin main:main # Ensure local origin/main is up-to-date
 
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Check for differences between dev and main
+      - name: Check for differences between dev and main (Bulletproof)
         id: check_diff
         run: |
-          # Ensure we are on 'dev' (actions/checkout should have done this)
-          git checkout dev
-          
-          # Compare the current 'dev' branch with the fetched 'origin/main'
-          # This command ensures `dev` has commits not present in `origin/main`
-          if git diff --exit-code origin/main dev > /dev/null; then
-            echo "::notice::Branch 'dev' is already in sync with 'main' on remote. No PR needed."
-            echo "needs_pr=false" >> $GITHUB_OUTPUT
-          else
-            echo "::notice::Branch 'dev' differs from 'main' on remote. A PR might be needed."
-            echo "needs_pr=true" >> $GITHUB_OUTPUT
-          fi
+          DEV_SHA=$(git rev-parse origin/dev)
+          MAIN_SHA=$(git rev-parse origin/main)
 
-      - name: Check if PR already exists (only if diff exists)
-        id: check_pr
+          echo "DEBUG: Remote origin/dev SHA: $DEV_SHA"
+          echo "DEBUG: Remote origin/main SHA: $MAIN_SHA"
+
+          # Check if dev is ahead of main (meaning main's HEAD is an ancestor of dev's HEAD)
+          if [ "$(git merge-base "$MAIN_SHA" "$DEV_SHA")" = "$MAIN_SHA" ]; then
+            # If main is an ancestor of dev, then dev has commits main doesn't have
+            NUM_COMMITS_AHEAD=$(git rev-list --right-only --count "$MAIN_SHA".."$DEV_SHA")
+            if [ "$NUM_COMMITS_AHEAD" -gt 0 ]; then
+              echo "::notice::Branch 'dev' is ahead of 'main' by $NUM_COMMITS_AHEAD commits. PR needed."
+              echo "needs_pr=true" >> "$GITHUB_OUTPUT"
+            else
+              # This case handles if main is an ancestor of dev but there are no new commits (e.g. empty commit or already merged)
+              echo "::notice::Branch 'dev' is a descendant of 'main' but has no new content. No PR needed."
+              echo "needs_pr=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # If dev is an ancestor of main OR they have diverged (both have unique commits)
+            # In this workflow, if dev is an ancestor of main, it means main already merged dev.
+            echo "::notice::Branch 'dev' is not ahead of 'main' with new commits (it might be an ancestor or diverged)."
+            echo "needs_pr=false" >> "$GITHUB_OUTPUT"
+          fi
+        # Add a default output to needs_pr if the if/else conditions don't set it (safety)
+        # This can happen if the script exits early or if the branch comparison logic is complex.
+        # You might not strictly need this if your logic covers all paths, but it's good practice.
+        # This will be automatically set by `echo "needs_pr=true/false" >> $GITHUB_OUTPUT`
+
+      - name: Create Pull Request (using gh CLI)
         if: steps.check_diff.outputs.needs_pr == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_ACTIONS_PAT }}
         run: |
-          # Use GitHub CLI to check for existing PRs from 'dev' to 'main'
+          PR_TITLE="Automated: Merge dev into main"
+          PR_BODY="This is an automated pull request to merge changes from \`dev\` into \`main\` after all CI tests passed."
           PR_EXISTS=$(gh pr list --base main --head dev --json number --jq '.[0].number' || echo "")
-          echo "Existing PR: $PR_EXISTS"
-          echo "PR_NUMBER=$PR_EXISTS" >> "$GITHUB_OUTPUT"
 
-      - name: Create or update Pull Request
-        id: create_pull_request
-        # Only run if a PR is needed AND one doesn't already exist (based on check_pr's output)
-        if: steps.check_diff.outputs.needs_pr == 'true' && steps.check_pr.outputs.PR_NUMBER == ''
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GH_ACTIONS_PAT }}
-          commit-message: 'Merge dev into main after successful CI'
-          title: 'Automated: Merge dev into main'
-          body: |
-            This is an automated pull request to merge changes from `dev` into `main` after all CI tests passed.
-          branch: dev # Source branch
-          base: main # Target branch
-          delete-branch: false
-          add-paths: '.' # Include all changes from 'dev'
-
-      - name: Determine PR number for merging
-        id: get_pr_number
-        if: steps.check_diff.outputs.needs_pr == 'true' # Only attempt to get PR number if a diff exists
-        env:
-          GH_TOKEN: ${{ secrets.GH_ACTIONS_PAT }}
-        run: |
-          PR_NUMBER=""
-          # If a new PR was created by peter-evans/create-pull-request
-          if [ "${{ steps.create_pull_request.outputs.pull-request-number }}" != "" ]; then
-            PR_NUMBER="${{ steps.create_pull_request.outputs.pull-request-number }}"
-          # If an existing PR was found by check_pr
-          elif [ "${{ steps.check_pr.outputs.PR_NUMBER }}" != "" ]; then
-            PR_NUMBER="${{ steps.check_pr.outputs.PR_NUMBER }}"
+          if [ -z "$PR_EXISTS" ]; then
+            echo "No existing PR found. Creating new PR from dev to main."
+            NEW_PR_URL=$(gh pr create --base main --head dev --title "$PR_TITLE" --body "$PR_BODY" --draft --repo ${{ github.repository }})
+            echo "New PR created: $NEW_PR_URL"
+            # Extract PR number from URL
+            PR_NUMBER=$(echo "$NEW_PR_URL" | sed -n 's/.*pull\/\([0-9]*\).*/\1/p')
+            echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          else
+            echo "Existing PR #$PR_EXISTS found. Will try to update or enable auto-merge."
+            echo "PR_NUMBER=$PR_EXISTS" >> "$GITHUB_OUTPUT"
+            # Optional: You can add gh pr edit or gh pr ready if it's a draft
+            # gh pr edit "$PR_EXISTS" --title "$PR_TITLE" --body "$PR_BODY"
           fi
-          echo "Determined PR_NUMBER: $PR_NUMBER"
-          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Enable auto-merge on the Pull Request
-        if: steps.get_pr_number.outputs.PR_NUMBER != '' # Only run if a PR number was successfully determined
+        if: steps.create_pull_request.outputs.PR_NUMBER != '' # Only run if a PR number was successfully determined
         env:
           GH_TOKEN: ${{ secrets.GH_ACTIONS_PAT }}
         run: |
-          PR_NUMBER=${{ steps.get_pr_number.outputs.PR_NUMBER }}
+          PR_NUMBER=${{ steps.create_pull_request.outputs.PR_NUMBER }}
           echo "Attempting to enable auto-merge for PR #$PR_NUMBER"
-          gh pr merge $PR_NUMBER --auto --merge # Using --auto as suggested to enable auto-merge
+          gh pr merge "$PR_NUMBER" --auto --merge --repo ${{ github.repository }}
           echo "Auto-merge command executed for PR #$PR_NUMBER"
 
       - name: Close the Pull Request (if merged successfully)
-        if: success() && steps.get_pr_number.outputs.PR_NUMBER != ''
+        # This is primarily for logging/cleanup if you need explicit closing logic.
+        # gh pr merge --auto should handle the closing when it successfully merges.
+        if: success() && steps.create_pull_request.outputs.PR_NUMBER != ''
         env:
           GH_TOKEN: ${{ secrets.GH_ACTIONS_PAT }}
         run: |
-          PR_NUMBER=${{ steps.get_pr_number.outputs.PR_NUMBER }}
+          PR_NUMBER=${{ steps.create_pull_request.outputs.PR_NUMBER }}
           echo "Checking if PR #$PR_NUMBER is closed..."
-          PR_STATE=$(gh pr view $PR_NUMBER --json state --jq '.state')
+          PR_STATE=$(gh pr view "$PR_NUMBER" --json state --jq '.state' --repo ${{ github.repository }})
           if [ "$PR_STATE" = "MERGED" ] || [ "$PR_STATE" = "CLOSED" ]; then
             echo "PR #$PR_NUMBER is already merged or closed."
           else
