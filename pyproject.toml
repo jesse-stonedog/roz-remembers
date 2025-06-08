@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "roz-remembers"
 version = "0.1.0"
-description = "A generic, message-driven state management library inspired by Redux."
+description = "A generic, message-driven state management library."
 authors = ["Jesse Stone <jesse@stonedogcode.com>"] 
 license = "MPL-2.0 license" 
 readme = "README.md"
