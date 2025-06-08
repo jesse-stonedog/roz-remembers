@@ -21,23 +21,26 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10' # Or any specific Python version your project requires (e.g., '3.9', '3.11')
-          cache: 'poetry' # Cache Poetry dependencies for faster installs
 
       - name: Install Poetry
-        run: pip install poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true 
 
-      - name: Install dependencies with Poetry
-        run: poetry install --no-root # Install dependencies, but not the project itself yet (as it's in 'dev')
-
+      - name: Configure Poetry for PATH
+        run: |
+          echo "POETRY_HOME=$(poetry env info -p)/bin" >> $GITHUB_ENV
+          echo "$(poetry env info -p)/bin" >> $GITHUB_PATH
+      - name: Set PYTHONPATH for src directory
+        run: echo "PYTHONPATH=$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
+      
       - name: Install project in editable mode
-        run: poetry install --sync # Install the project in editable mode for testing
+        run: poetry install --with dev # with dev installs development dependencies
 
       - name: Run tests with pytest
-        run: poetry run pytest # Execute your tests using Poetry's run command
-        env:
-          PYTHONPATH: ${{ github.workspace }}/roz_remembers # Adjust if your main code is in a different directory (e.g., just `.` if tests are at root)
-          # Add any other environment variables your tests might need here
-          # GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # If your tests need a token, though usually not for unit tests
+        run: PYTHONPATH=src poetry run pytest # Execute your tests using Poetry's run command
+
 
   create_pr_and_merge:
     name: Create PR & Merge to Main
@@ -49,18 +52,13 @@ jobs:
       - name: Checkout code (for PR creation)
         uses: actions/checkout@v4
         with:
-          # Fetch 'dev' branch as the source for the PR
           ref: dev
-          fetch-depth: 0 # Fetch all history for proper PR creation
-          # Important: Use a PAT for PR creation and merging
-          # The default GITHUB_TOKEN doesn't have merge permissions on protected branches
-          token: ${{ secrets.GH_ACTIONS_PAT }}
+          fetch-depth: 0
 
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Check if PR already exists
         id: check_pr
         env:
@@ -70,35 +68,29 @@ jobs:
           PR_EXISTS=$(gh pr list --base main --head dev --json number --jq '.[0].number' || echo "")
           echo "Existing PR: $PR_EXISTS"
           echo "PR_NUMBER=$PR_EXISTS" >> "$GITHUB_OUTPUT"
-
       - name: Create or update Pull Request
         id: create_pull_request
-        if: steps.check_pr.outputs.PR_NUMBER == '' # Only create PR if one doesn't exist
+        if: steps.check_pr.outputs.PR_NUMBER == ''
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GH_ACTIONS_PAT }} # Use the PAT for creating the PR
+          token: ${{ secrets.GH_ACTIONS_PAT }}
           commit-message: 'Merge dev into main after successful CI'
           title: 'Automated: Merge dev into main'
           body: |
             This is an automated pull request to merge changes from `dev` into `main` after all CI tests passed.
-          branch: dev # Source branch
-          base: main # Target branch
-          delete-branch: false # Do not delete 'dev' after merging
-          add-paths: '.' # Include all changes from 'dev'
+          branch: dev
+          base: main
+          delete-branch: false
 
       - name: Determine PR number for merging
         id: get_pr_number
-        env:
-          GH_TOKEN: ${{ secrets.GH_ACTIONS_PAT }}
         run: |
-          if [ "${{ steps.check_pr.outputs.PR_NUMBER }}" != "" ]; then
-            echo "PR_NUMBER=${{ steps.check_pr.outputs.PR_NUMBER }}" >> "$GITHUB_OUTPUT"
-          else
-            # If a new PR was just created, get its number
-            PR_NUMBER=$(gh pr list --base main --head dev --json number --jq '.[0].number' || echo "")
-            echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          PR_NUMBER="${{ steps.check_pr.outputs.PR_NUMBER }}"
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER="${{ steps.create_pull_request.outputs.pull-request-number }}"
           fi
-
+          echo "PR_NUMBER=$PR_NUMBER"
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
       - name: Enable auto-merge on the Pull Request
         if: steps.get_pr_number.outputs.PR_NUMBER != ''
         env:
@@ -110,7 +102,7 @@ jobs:
             exit 0
           fi
           echo "Attempting to enable auto-merge for PR #$PR_NUMBER"
-          gh pr merge $PR_NUMBER --auto --merge # Use --auto for auto-merge, --merge for merge commit
+          gh pr merge $PR_NUMBER --merge --admin
           echo "Auto-merge command executed for PR #$PR_NUMBER"
         # It's important to understand the merge strategy:
         # --auto: Enables auto-merge (PR will merge when all checks pass)
