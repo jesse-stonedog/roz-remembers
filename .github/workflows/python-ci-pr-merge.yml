@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           # Fetch the 'dev' branch to build and test
-          ref: dev
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
