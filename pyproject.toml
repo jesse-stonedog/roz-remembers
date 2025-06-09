@@ -1,27 +1,28 @@
-[tool.poetry]
+[project]
 name = "roz-remembers"
 version = "0.1.0"
-description = "A generic, message-driven state management library."
-authors = ["Jesse Stone <jesse@stonedogcode.com>"] 
-license = "MPL-2.0 license" 
+description = "State management library for Python"
+authors = [
+    {name = "Jesse Stone",email = "jesse@stonedogcode.com"}
+]
+license = {text = "MIT"}
 readme = "README.md"
-homepage = "https://github.com/jesse-stonedog/roz-remembers"
-repository = "https://github.com/jesse-stonedog/roz-remembers"
-keywords = ["state-management", "redux", "asyncio", "event-driven"]
-
-[tool.poetry.dependencies]
-python = ">=3.9,<4.0"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.0" # For testing
-pytest-asyncio = "^0.23.0"
-black = "^24.0" # For code formatting
-isort = "^5.10" # For import sorting
-flake8 = "^7.0" # For linting
+requires-python = ">=3.9,<4.0"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.dependencies]
+requests = "^2.32.4"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.0"
+pytest-asyncio = "^1.0.0"
+blank = "^0.1.0"
+black = "^25.1.0"
+isort = "^6.0.1"
+flake8 = "^7.2.0"
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"
