@@ -437,7 +437,9 @@ class Store:
             self._state = {}
             return
         except OSError as exc:
-            logger.error(f"Could not read store state file {path}: {exc}. Starting empty.")
+            logger.error(
+                f"Could not read store state file {path}: {exc}. Starting empty."
+            )
             self._state = {}
             return
 

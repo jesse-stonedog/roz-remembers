@@ -18,8 +18,8 @@ import pytest
 
 from stonedog_remembers import MISSING, Store
 
-
 # ── save() is atomic ─────────────────────────────────────────────────────────
+
 
 def test_a_failed_save_leaves_the_previous_state_intact(tmp_path: Path) -> None:
     """The defect this file exists for.
@@ -105,6 +105,7 @@ def test_save_still_raises_when_it_cannot_write(tmp_path: Path) -> None:
 
 # ── load() degrades rather than raising ──────────────────────────────────────
 
+
 def test_a_missing_file_starts_empty(tmp_path: Path) -> None:
     assert Store(state_file=str(tmp_path / "absent.json")).get_state() == {}
 
@@ -160,8 +161,9 @@ def test_a_valid_object_is_loaded(tmp_path: Path) -> None:
 
 # ── get() distinguishes missing from stored-None ─────────────────────────────
 
+
 def test_a_stored_none_is_returned_rather_than_the_default() -> None:
-    """"Missing" and "explicitly nothing" are different facts.
+    """ "Missing" and "explicitly nothing" are different facts.
 
     A stored `None` usually means somebody decided, and the answer was nothing.
     Returning the caller's default for it silently replaces a decision.
