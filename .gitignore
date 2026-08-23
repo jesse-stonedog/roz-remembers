@@ -10,3 +10,10 @@ dist/*
 # symlink into it, so the documents are where a person expects while this
 # repository commits none of them. See the StoneDogCode CLAUDE.md.
 docs/prd
+
+# This project is managed by POETRY — `poetry.lock` is what the build and CI
+# use. A `uv.lock` appears the moment anybody runs `uv run` here, and one was
+# committed by accident that way: nothing reads it, it drifts silently, and it
+# tells the next contributor the wrong thing about which tool manages this
+# project.
+uv.lock
