@@ -37,6 +37,10 @@ dot-separated `path`:
 * numeric segments index into lists: `"items.0.name"` → `state["items"][0]["name"]`
 * **reads** of a missing or non-traversable path return `None`
   (or your supplied default on `Store.get`).
+* **a stored `None` is not the same as a missing path.** `Store.get` returns
+  `None` for a value somebody stored, and your default only when there is no
+  value there at all — use `Store.has(path)` to ask which. (`get_nested_value`
+  still returns `None` for both; it is public API and unchanged.)
 * **writes** auto-create intermediate dicts as needed. A write fails
   (returns `False`) only if a segment can't be traversed or assigned — e.g. a
   list index out of range, or trying to descend into a scalar.
@@ -81,8 +85,28 @@ live.set("job.sorted", 5)
 live.save()                              # persists back to state.json
 ```
 
-Loading a missing file or malformed JSON starts from an empty state (a warning
-is logged) rather than raising, so a first run "just works".
+**Loading never raises.** A missing file, malformed JSON, an unreadable file, a
+path that is a directory, or a JSON document that is not an object all start
+from an empty state with a log line — so a first run "just works" and a
+constructor is not something every caller has to wrap.
+
+**Saving is atomic.** The state is written to a temporary file in the target's
+own directory, flushed, and then `os.replace`d over the target, so a reader sees
+either the old file or the new one and never a half-written one. The obvious
+implementation — `open(target, "w")` — truncates *before* writing, so anything
+that goes wrong after that leaves an empty file where the state used to be. That
+is the one unacceptable failure for a state library, because it destroys data
+that was already safe. The temporary file is in the target's directory
+deliberately: `os.replace` across filesystems fails with `EXDEV`.
+
+**Saving still raises.** A save that cannot write is a fact you need. If
+persistence is a convenience in your program rather than a requirement, catch
+`OSError` and carry on — that is a decision only the caller can make, and a
+library that made it for you would lose data silently.
+
+**Atomic is not synchronised.** Two processes saving at once both write complete,
+valid files and the second wins entirely. That is last-writer-wins, not
+corruption; this class does not lock.
 
 ## Quickstart — `StonedogRemembers` (asynchronous)
 

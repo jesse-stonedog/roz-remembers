@@ -13,6 +13,8 @@ import asyncio
 import copy
 import json
 import logging
+import os
+import tempfile
 from typing import Any, Callable, Dict, List, Optional
 
 # A library must never configure the root logger (that's the application's job,
@@ -27,12 +29,64 @@ __all__ = [
     "Store",
     "get_nested_value",
     "set_nested_value",
+    "MISSING",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Shared dot-path engine (used by both the async store and the sync Store)
 # ---------------------------------------------------------------------------
+
+
+class _Missing:
+    """The absence of a value, which is not the same fact as ``None``.
+
+    ``get_nested_value`` returns ``None`` for a missing path, so a caller could
+    never tell a key that is absent from one that was deliberately stored as
+    ``None`` — and ``Store.get(path, default)`` therefore handed back the
+    default for a value somebody had explicitly set. That is wrong in the
+    direction that matters: a stored ``None`` usually means "this was decided,
+    and the answer is nothing".
+
+    ``get_nested_value`` keeps returning ``None``, because it is public API and
+    changing it would break every existing caller. The sentinel is used by the
+    lookup underneath it.
+    """
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging affordance
+        return "<MISSING>"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+MISSING = _Missing()
+
+
+def _lookup(path: str, data: Dict[str, Any]) -> Any:
+    """Return the value at ``path``, or ``MISSING`` if there is no value there."""
+    parts = path.split(".")
+    temp_data: Any = data
+    for part in parts:
+        if isinstance(temp_data, dict):
+            if part not in temp_data:
+                return MISSING
+            temp_data = temp_data[part]
+        elif isinstance(temp_data, list) and part.isdigit():
+            idx = int(part)
+            if not (0 <= idx < len(temp_data)):
+                return MISSING
+            temp_data = temp_data[idx]
+        else:
+            return MISSING
+    return temp_data
 
 
 def get_nested_value(path: str, data: Dict[str, Any]) -> Any:
@@ -317,9 +371,20 @@ class Store:
         return True
 
     def get(self, path: str, default: Any = None) -> Any:
-        """Return the value at ``path`` or ``default`` if it is missing."""
-        value = get_nested_value(path, self._state)
-        return default if value is None else value
+        """Return the value at ``path``, or ``default`` if there is no value there.
+
+        A value of ``None`` that somebody stored is returned as ``None``. It used
+        to come back as ``default``, because the lookup could not distinguish an
+        absent key from a null one — so a deliberate "the answer is nothing" was
+        silently replaced by whatever the caller happened to pass. Falsy values
+        (``0``, ``False``, ``""``, ``[]``) were never affected and still are not.
+        """
+        value = _lookup(path, self._state)
+        return default if value is MISSING else value
+
+    def has(self, path: str) -> bool:
+        """Is there a value at ``path`` at all — even ``None``?"""
+        return _lookup(path, self._state) is not MISSING
 
     def get_state(self) -> Dict[str, Any]:
         """Return a deep copy of the entire state."""
@@ -346,27 +411,103 @@ class Store:
                 logger.error(f"Store subscriber raised: {exc}", exc_info=True)
 
     def load(self, path: str) -> None:
-        """Replace the state with JSON loaded from ``path`` (empty on failure)."""
+        """Replace the state with JSON loaded from ``path`` (empty on failure).
+
+        Every failure ends with an empty state and a log line rather than an
+        exception, which is this method's long-standing contract — a store whose
+        constructor can raise is one every caller has to wrap.
+
+        Two of those failures used to escape anyway. `IsADirectoryError` and
+        `PermissionError` are `OSError`, not `FileNotFoundError`, so pointing at
+        a directory or an unreadable file raised from inside `__init__`. And a
+        file containing valid JSON that is not an OBJECT — `[1, 2, 3]`, or
+        `"hello"` — was accepted, after which every `set()` returned False
+        forever and every `get()` returned the default: a store that had quietly
+        stopped storing anything.
+        """
         try:
             with open(path, "r") as f:
-                self._state = json.load(f)
-            logger.info(f"Store loaded state from: {path}")
+                loaded = json.load(f)
         except FileNotFoundError:
             logger.warning(f"Store state file not found: {path}. Starting empty.")
             self._state = {}
+            return
         except json.JSONDecodeError:
             logger.error(f"Invalid JSON in store state file: {path}. Starting empty.")
             self._state = {}
+            return
+        except OSError as exc:
+            logger.error(f"Could not read store state file {path}: {exc}. Starting empty.")
+            self._state = {}
+            return
+
+        if not isinstance(loaded, dict):
+            logger.error(
+                f"Store state file {path} contains a JSON "
+                f"{type(loaded).__name__}, not an object. Starting empty."
+            )
+            self._state = {}
+            return
+
+        self._state = loaded
+        logger.info(f"Store loaded state from: {path}")
 
     def save(self, path: Optional[str] = None) -> None:
-        """Persist the current state as JSON to ``path`` (or the ``state_file``)."""
+        """Persist the current state as JSON, atomically.
+
+        WHY THIS IS NOT `open(target, "w")`
+
+        That call TRUNCATES the file before anything is written. A failure after
+        it — a full disk, a killed process, a value that will not serialise —
+        leaves an empty file where the state used to be. Measured, not feared: a
+        file holding `{"important": "previous state"}` became `''` when
+        `json.dump` raised part-way through. For a state library that is the one
+        unacceptable failure, because it destroys data that was already safe.
+
+        So: write a temporary file, flush it to disk, and `os.replace` it over
+        the target. `os.replace` is atomic on POSIX and on Windows, so a reader
+        sees either the old file or the new one and never a half-written one.
+
+        THE TEMPORARY FILE IS IN THE TARGET'S OWN DIRECTORY, deliberately. A
+        rename across filesystems fails with `EXDEV` — so a temp file in `/tmp`
+        works on a laptop and fails on any host where the state lives on a
+        different mount, which is exactly where it would be discovered.
+
+        IT STILL RAISES. A save that cannot write is a fact the caller needs; a
+        library that swallowed it would lose data silently on behalf of every
+        future consumer to spare one of them a try/except. A caller for whom
+        persistence is a convenience should catch `OSError` and carry on — that
+        is a decision only the caller can make.
+
+        ATOMIC IS NOT SYNCHRONISED. Two processes saving at once both write
+        complete, valid files and the second wins entirely. That is
+        last-writer-wins, not corruption, and this class does not lock.
+        """
         target = path or self._state_file
         if not target:
             raise ValueError(
                 "Store.save requires a path or a state_file set at construction."
             )
-        with open(target, "w") as f:
-            json.dump(self._state, f, indent=2, default=str)
+
+        directory = os.path.dirname(os.path.abspath(target)) or "."
+        handle, temp_path = tempfile.mkstemp(
+            dir=directory, prefix=".stonedog-remembers-", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(handle, "w") as f:
+                json.dump(self._state, f, indent=2, default=str)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, target)
+        except BaseException:
+            # The target is untouched at this point, whatever went wrong. Clean
+            # up the temporary file so a failing save does not leave litter next
+            # to the state it failed to replace.
+            try:
+                os.unlink(temp_path)
+            except OSError:  # pragma: no cover - it may never have been created
+                pass
+            raise
         logger.debug(f"Store saved state to: {target}")
 
 
