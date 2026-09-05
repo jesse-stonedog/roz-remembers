@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "project": "stonedog-remembers",
+  "tiers": {
+    "unit": {
+      "include": ["tests/test_*.py"]
+    }
+  }
+}
